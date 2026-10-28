@@ -1,0 +1,20 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { Bell, Heart, MessageCircle, UserRound, CheckCheck } from "lucide-react";
+import { Avatar } from "@/components/avatar";
+import { EmptyState } from "@/components/empty-state";
+import { apiRequest, formatDate, toast } from "@/lib/client";
+
+type NotificationItem = { _id: string; type: "follow" | "like" | "comment"; actorId: { name: string; username: string; profileImage?: { url: string } | null }; postId?: { _id: string; title?: string; caption?: string } | null; readAt?: string | null; createdAt: string };
+function eventText(type: string) { return type === "follow" ? "started following you" : type === "like" ? "appreciated your community post" : "commented on your post"; }
+export default function NotificationsPage() {
+  const [items, setItems] = useState<NotificationItem[]>([]); const [unread, setUnread] = useState(0); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
+  const refresh = () => apiRequest<{ items: NotificationItem[]; unreadCount: number }>("/api/notifications").then((result) => { setItems(result.items); setUnread(result.unreadCount); }).catch((caught) => setError(caught instanceof Error ? caught.message : "Could not load notifications.")).finally(() => setLoading(false));
+  useEffect(() => { void refresh(); }, []);
+  const markAll = async () => { try { await apiRequest("/api/notifications", { method: "POST", body: JSON.stringify({ all: true }) }); setItems((value) => value.map((item) => ({ ...item, readAt: item.readAt ?? new Date().toISOString() }))); setUnread(0); toast("All notifications marked as read."); } catch (caught) { toast(caught instanceof Error ? caught.message : "Could not update notifications.", "error"); } };
+  const markRead = async (item: NotificationItem) => { if (item.readAt) return; try { await apiRequest("/api/notifications", { method: "POST", body: JSON.stringify({ id: item._id }) }); setItems((value) => value.map((entry) => entry._id === item._id ? { ...entry, readAt: new Date().toISOString() } : entry)); setUnread((value) => Math.max(0, value - 1)); } catch { /* link can still be opened if a read update fails */ } };
+  if (loading) return <><div className="page-heading"><h1 className="page-title">Notifications</h1></div><div className="post-skeleton"><span className="skeleton" style={{ height: 220 }} /></div></>;
+  return <><div className="page-heading"><div><p className="eyebrow"><Bell size={13} />Community activity</p><h1 className="page-title">Notifications</h1><p className="page-description">A little update when someone connects with your posts or profile.</p></div>{unread > 0 && <button className="button secondary small" onClick={() => void markAll()}><CheckCheck size={14} />Mark all read</button>}</div>{error ? <EmptyState icon={Bell} title="Sign in to see notifications" description={error} action="Sign in" href="/login" /> : items.length ? <div className="card">{items.map((item) => { const target = item.type === "follow" ? `/u/${item.actorId.username}` : item.postId ? `/post/${item.postId._id}` : `/u/${item.actorId.username}`; const Icon = item.type === "follow" ? UserRound : item.type === "like" ? Heart : MessageCircle; return <Link href={target} key={item._id} className={`notification-item${item.readAt ? "" : " unread"}`} onClick={() => void markRead(item)}><Avatar image={item.actorId.profileImage} name={item.actorId.name} size="small" /><span className="rail-tip-icon" style={{ width: 25, height: 25, borderRadius: 8 }}><Icon size={13} /></span><span className="notification-copy"><strong>{item.actorId.name}</strong> {eventText(item.type)}{item.postId?.title ? `: ${item.postId.title}` : ""}<span className="notification-time">{formatDate(item.createdAt)}</span></span>{!item.readAt && <span className="dot" />}</Link>; })}</div> : <EmptyState icon={Bell} title="You’re all caught up" description="When neighbors follow or interact with your community posts, you’ll see it here." action="Explore the community" href="/explore" />}</>;
+}
